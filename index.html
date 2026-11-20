@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Semaine 13 - Ce que j'ai appris cette semaine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
+
+        :root {
+            --color-red: #ef4444;
+            --color-green: #22c55e;
+            --color-blue: #3b82f6;
+            --color-yellow: #eab308;
+            --color-purple: #a855f7;
+            --color-orange: #f97316;
+        }
+
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e3a8a);
+            color: white;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Jeu & Grille */
+        #game-board {
+            touch-action: none; /* Crucial pour empêcher le scroll sur mobile/TNI pendant le tracé */
+            display: grid;
+            gap: 4px;
+            position: relative;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .cell {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s;
+        }
+
+        /* Boules de Noël (Points) */
+        .dot {
+            width: 70%;
+            height: 70%;
+            border-radius: 50%;
+            position: relative;
+            box-shadow: inset -4px -4px 8px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+        .dot::after {
+            content: '';
+            position: absolute;
+            top: 10%;
+            left: 15%;
+            width: 25%;
+            height: 25%;
+            background: rgba(255,255,255,0.6);
+            border-radius: 50%;
+        }
+
+        /* Superposition SVG pour les lignes */
+        #svg-overlay {
+            position: absolute;
+            top: 8px; /* Correspond au padding de #game-board */
+            left: 8px;
+            width: calc(100% - 16px);
+            height: calc(100% - 16px);
+            pointer-events: none; /* Laisse passer les clics vers la grille HTML */
+            z-index: 5;
+        }
+
+        .path-line {
+            fill: none;
+            stroke-width: 14;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.3));
+            animation: draw 0.3s ease-out forwards;
+        }
+
+        @keyframes draw {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+
+        .btn-press {
+            transition: all 0.1s;
+        }
+        .btn-press:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col items-center">
+
+    <!-- En-tête compact et Consigne -->
+    <header class="w-full max-w-4xl px-2 pt-2 pb-1 flex flex-col justify-center items-center gap-2 flex-shrink-0 z-20">
+        <div class="text-center">
+            <h1 class="text-lg md:text-xl font-bold text-yellow-300 drop-shadow-md">Semaine 13 - Ce que j'ai appris</h1>
+        </div>
+        <!-- Consigne ultra-compacte et sécurisée contre les chevauchements -->
+        <div id="instruction-box" class="bg-blue-800/90 border border-blue-400 px-4 py-2 rounded-xl shadow-md backdrop-blur-sm flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 text-center w-full max-w-2xl">
+            <span class="text-yellow-400 font-bold text-sm uppercase tracking-wider flex-shrink-0">Consigne:</span>
+            <span id="instruction-text" class="text-white text-sm md:text-base font-semibold">Relie les boules de même couleur. Remplis TOUTES les cases !</span>
+        </div>
+    </header>
+
+    <!-- Interface Principale (Jeu) -->
+    <main class="flex-1 w-full max-w-3xl flex flex-col items-center justify-start p-2 min-h-0 relative z-10">
+        
+        <!-- Barre de progression -->
+        <div class="w-full flex justify-between items-center mb-2 md:mb-3 px-4 text-xl font-bold flex-shrink-0">
+            <button id="btn-prev" onclick="changeLevel(-1)" class="btn-press text-white bg-white/20 p-2 rounded-full w-10 h-10 flex items-center justify-center hover:bg-white/40">&larr;</button>
+            <span id="level-indicator" class="bg-black/40 px-6 py-1.5 rounded-full border border-white/20 shadow-inner text-sm md:text-base whitespace-nowrap">Niveau 1 / 12</span>
+            <button id="btn-next" onclick="changeLevel(1)" class="btn-press text-white bg-white/20 p-2 rounded-full w-10 h-10 flex items-center justify-center hover:bg-white/40">&rarr;</button>
+        </div>
+
+        <!-- Conteneur du plateau de jeu (Taille max sécurisée pour éviter tout débordement) -->
+        <div class="relative w-full max-w-[60vh] max-h-[60vh] aspect-square flex-shrink-0" id="game-container">
+            <div id="game-board" class="w-full h-full"></div>
+            <svg id="svg-overlay"></svg>
+        </div>
+
+        <!-- Boutons de contrôle du bas -->
+        <div class="flex gap-4 mt-4 flex-shrink-0">
+            <button onclick="resetCurrentLevel()" class="btn-press bg-orange-500 hover:bg-orange-400 text-white font-bold py-2.5 px-5 rounded-xl shadow-[0_5px_0_#c2410c] active:shadow-[0_0px_0_#c2410c] active:translate-y-[5px] text-base">
+                🔄 Recommencer
+            </button>
+            <button onclick="showSolution()" class="btn-press bg-green-500 hover:bg-green-400 text-white font-bold py-2.5 px-5 rounded-xl shadow-[0_5px_0_#15803d] active:shadow-[0_0px_0_#15803d] active:translate-y-[5px] text-base">
+                ✅ Voir le corrigé
+            </button>
+        </div>
+    </main>
+
+    <!-- Modal de réussite -->
+    <div id="win-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gradient-to-b from-blue-500 to-blue-700 p-8 rounded-3xl shadow-2xl border-4 border-yellow-400 text-center transform scale-90 transition-transform duration-300" id="win-modal-content">
+            <div class="text-6xl mb-4">🌟🎄🌟</div>
+            <h2 class="text-4xl font-black text-white mb-2 drop-shadow-lg">Bravo !</h2>
+            <p class="text-xl text-blue-100 mb-8 font-bold">Tu as relié toutes les couleurs et rempli la grille !</p>
+            <button onclick="nextLevel()" class="btn-press bg-yellow-400 hover:bg-yellow-300 text-blue-900 font-black py-4 px-8 rounded-2xl shadow-[0_6px_0_#b45309] active:shadow-[0_0px_0_#b45309] active:translate-y-[6px] text-2xl w-full">
+                Niveau Suivant 🚀
+            </button>
+        </div>
+    </div>
+
+<script>
+    /* =========================================================================
+       DONNÉES DES NIVEAUX (12 Niveaux à difficulté progressive logique)
+       ========================================================================= */
+    const COLORS = {
+        red: 'var(--color-red)',
+        green: 'var(--color-green)',
+        blue: 'var(--color-blue)',
+        yellow: 'var(--color-yellow)',
+        purple: 'var(--color-purple)',
+        orange: 'var(--color-orange)'
+    };
+
+    const LEVELS = [
+        // 1-4 : Introduction (Grilles 4x4 - Solutions naturelles orthogonales)
+        {
+            size: 4,
+            dots: { red: [[0,1], [1,0]], blue: [[0,2], [3,3]], green: [[1,1], [3,1]], yellow: [[2,1], [3,0]] },
+            solution: {
+                red: [[0,1],[0,0],[1,0]],
+                blue: [[0,2],[0,3],[1,3],[2,3],[3,3]],
+                green: [[1,1],[1,2],[2,2],[3,2],[3,1]],
+                yellow: [[2,1],[2,0],[3,0]]
+            }
+        },
+        {
+            size: 4,
+            dots: { red: [[0,0], [0,3]], blue: [[1,0], [2,2]], green: [[1,2], [3,3]], yellow: [[2,0], [3,2]] },
+            solution: {
+                red: [[0,0],[0,1],[0,2],[0,3]],
+                blue: [[1,0],[1,1],[2,1],[2,2]],
+                green: [[1,2],[1,3],[2,3],[3,3]],
+                yellow: [[2,0],[3,0],[3,1],[3,2]]
+            }
+        },
+        {
+            size: 4,
+            dots: { red: [[0,0], [3,0]], blue: [[0,2], [1,2]], green: [[0,3], [3,3]], yellow: [[2,1], [3,1]] },
+            solution: {
+                red: [[0,0],[1,0],[2,0],[3,0]],
+                blue: [[0,2],[0,1],[1,1],[1,2]],
+                green: [[0,3],[1,3],[2,3],[3,3]],
+                yellow: [[2,1],[2,2],[3,2],[3,1]]
+            }
+        },
+        { // 4x4 avec 3 points
+            size: 4,
+            dots: { red: [[1,2], [0,0], [3,0]], blue: [[0,3], [3,3]], green: [[1,1], [3,1]], yellow: [[2,2], [3,2]] },
+            solution: {
+                red: [[1,2],[0,2],[0,1],[0,0],[1,0],[2,0],[3,0]],
+                blue: [[0,3],[1,3],[2,3],[3,3]],
+                green: [[1,1],[2,1],[3,1]],
+                yellow: [[2,2],[3,2]]
+            }
+        },
+        // 5-8 : Complexité accrue (Grilles 5x5)
+        {
+            size: 5,
+            dots: { red: [[0,1], [4,0]], blue: [[0,2], [2,4]], green: [[1,2], [4,1]], yellow: [[1,3], [4,3]], purple: [[2,2], [4,2]], orange: [[3,4], [4,4]] },
+            solution: {
+                red: [[0,1],[0,0],[1,0],[2,0],[3,0],[4,0]],
+                blue: [[0,2],[0,3],[0,4],[1,4],[2,4]],
+                green: [[1,2],[1,1],[2,1],[3,1],[4,1]],
+                yellow: [[1,3],[2,3],[3,3],[4,3]],
+                purple: [[2,2],[3,2],[4,2]],
+                orange: [[3,4],[4,4]]
+            }
+        },
+        {
+            size: 5,
+            dots: { red: [[0,0], [4,2]], blue: [[0,3], [1,3]], green: [[1,1], [4,0]], yellow: [[2,1], [4,1]], purple: [[2,3], [4,4]], orange: [[3,3], [4,3]] },
+            solution: {
+                red: [[0,0],[0,1],[0,2],[1,2],[2,2],[3,2],[4,2]],
+                blue: [[0,3],[0,4],[1,4],[1,3]],
+                green: [[1,1],[1,0],[2,0],[3,0],[4,0]],
+                yellow: [[2,1],[3,1],[4,1]],
+                purple: [[2,3],[2,4],[3,4],[4,4]],
+                orange: [[3,3],[4,3]]
+            }
+        },
+        { // 5x5 avec 3 points
+            size: 5,
+            dots: { red: [[0,0], [0,4], [4,4]], blue: [[1,0], [4,2]], yellow: [[2,0], [4,1]], purple: [[3,0], [4,0]], green: [[1,3], [4,3]] },
+            solution: {
+                red: [[0,0],[0,1],[0,2],[0,3],[0,4],[1,4],[2,4],[3,4],[4,4]],
+                blue: [[1,0],[1,1],[1,2],[2,2],[3,2],[4,2]],
+                yellow: [[2,0],[2,1],[3,1],[4,1]],
+                purple: [[3,0],[4,0]],
+                green: [[1,3],[2,3],[3,3],[4,3]]
+            }
+        },
+        {
+            size: 5,
+            dots: { blue: [[1,2], [4,2]], yellow: [[1,1], [2,2]], green: [[0,4], [4,3]], red: [[1,4], [4,4]] },
+            solution: {
+                blue: [[1,2],[0,2],[0,1],[0,0],[1,0],[2,0],[3,0],[4,0],[4,1],[4,2]],
+                yellow: [[1,1],[2,1],[3,1],[3,2],[2,2]],
+                green: [[0,4],[0,3],[1,3],[2,3],[3,3],[4,3]],
+                red: [[1,4],[2,4],[3,4],[4,4]]
+            }
+        },
+        // 9-12 : Masterclass (Grilles 6x6)
+        {
+            size: 6,
+            dots: { red: [[0,0], [3,2]], blue: [[0,2], [5,3]], green: [[0,3], [2,5], [5,5]], yellow: [[1,3], [5,4]], orange: [[1,0], [5,1]], purple: [[4,1], [5,2]] },
+            solution: {
+                red: [[0,0],[0,1],[1,1],[2,1],[3,1],[3,2]],
+                blue: [[0,2],[1,2],[2,2],[2,3],[3,3],[4,3],[5,3]],
+                green: [[0,3],[0,4],[0,5],[1,5],[2,5],[3,5],[4,5],[5,5]],
+                yellow: [[1,3],[1,4],[2,4],[3,4],[4,4],[5,4]],
+                orange: [[1,0],[2,0],[3,0],[4,0],[5,0],[5,1]],
+                purple: [[4,1],[4,2],[5,2]]
+            }
+        },
+        {
+            size: 6,
+            dots: { red: [[0,0], [0,5]], orange: [[1,5], [5,5]], blue: [[1,0], [3,4], [5,4]], green: [[2,0], [5,3]], yellow: [[3,0], [5,2]], purple: [[4,0], [5,0]] },
+            solution: {
+                red: [[0,0],[0,1],[0,2],[0,3],[0,4],[0,5]],
+                orange: [[1,5],[2,5],[3,5],[4,5],[5,5]],
+                blue: [[1,0],[1,1],[1,2],[1,3],[1,4],[2,4],[3,4],[4,4],[5,4]],
+                green: [[2,0],[2,1],[2,2],[2,3],[3,3],[4,3],[5,3]],
+                yellow: [[3,0],[3,1],[3,2],[4,2],[5,2]],
+                purple: [[4,0],[4,1],[5,1],[5,0]]
+            }
+        },
+        {
+            size: 6,
+            dots: { red: [[0,0], [5,0]], blue: [[0,1], [4,5], [5,5]], green: [[1,1], [5,1]], orange: [[1,2], [3,2]], purple: [[1,3], [4,2], [5,3]], yellow: [[1,4], [5,4]] },
+            solution: {
+                red: [[0,0],[1,0],[2,0],[3,0],[4,0],[5,0]],
+                blue: [[0,1],[0,2],[0,3],[0,4],[0,5],[1,5],[2,5],[3,5],[4,5],[5,5]],
+                green: [[1,1],[2,1],[3,1],[4,1],[5,1]],
+                orange: [[1,2],[2,2],[3,2]],
+                purple: [[1,3],[2,3],[3,3],[4,3],[5,3],[5,2],[4,2]],
+                yellow: [[1,4],[2,4],[3,4],[4,4],[5,4]]
+            }
+        },
+        { // Boss Final - Spirale complexe
+            size: 6,
+            dots: { red: [[0,0], [1,1]], purple: [[2,1], [4,3], [3,2]], blue: [[1,0], [5,2]], green: [[5,3], [3,5]], yellow: [[2,5], [1,4]], orange: [[2,4], [4,4]] },
+            solution: {
+                red: [[0,0],[0,1],[0,2],[0,3],[1,3],[1,2],[1,1]],
+                purple: [[2,1],[3,1],[4,1],[4,2],[4,3],[3,3],[2,3],[2,2],[3,2]],
+                blue: [[1,0],[2,0],[3,0],[4,0],[5,0],[5,1],[5,2]],
+                green: [[5,3],[5,4],[5,5],[4,5],[3,5]],
+                yellow: [[2,5],[1,5],[0,5],[0,4],[1,4]],
+                orange: [[2,4],[3,4],[4,4]]
+            }
+        }
+    ];
+
+    /* =========================================================================
+       ETAT DU JEU & LOGIQUE
+       ========================================================================= */
+    let currentLevelIndex = 0;
+    let paths = {};      // Les tracés confirmés { color: [[r,c], [r,c]...] }
+    let drawingColor = null;
+    let currentPath = [];// Tracé en cours (tableau de [r,c])
+    let isDrawing = false;
+    let cellElements = [];
+
+    const board = document.getElementById('game-board');
+    const svgOverlay = document.getElementById('svg-overlay');
+
+    // INITIALISATION
+    function init() {
+        loadLevel(currentLevelIndex);
+        setupPointerEvents();
+    }
+
+    function loadLevel(index) {
+        currentLevelIndex = index;
+        paths = {};
+        drawingColor = null;
+        currentPath = [];
+        isDrawing = false;
+
+        const levelData = LEVELS[index];
+        
+        // Mettre à jour l'UI (Textes, Consignes)
+        document.getElementById('level-indicator').innerText = `Niveau ${index + 1} / 12`;
+        document.getElementById('btn-prev').style.visibility = index === 0 ? 'hidden' : 'visible';
+        document.getElementById('btn-next').style.visibility = index === LEVELS.length - 1 ? 'hidden' : 'visible';
+        
+        updateInstructions(levelData);
+
+        // Construire la grille
+        board.style.gridTemplateColumns = `repeat(${levelData.size}, minmax(0, 1fr))`;
+        board.style.gridTemplateRows = `repeat(${levelData.size}, minmax(0, 1fr))`;
+        board.innerHTML = '';
+        cellElements = Array(levelData.size).fill(null).map(() => Array(levelData.size).fill(null));
+
+        for (let r = 0; r < levelData.size; r++) {
+            for (let c = 0; c < levelData.size; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.r = r;
+                cell.dataset.c = c;
+                
+                // Vérifier s'il y a un point (boule de Noël) ici
+                let dotColor = null;
+                for (const [color, coordsList] of Object.entries(levelData.dots)) {
+                    if (coordsList.some(coord => coord[0] === r && coord[1] === c)) {
+                        dotColor = color;
+                        break;
+                    }
+                }
+
+                if (dotColor) {
+                    const dot = document.createElement('div');
+                    dot.className = 'dot';
+                    dot.style.backgroundColor = COLORS[dotColor];
+                    dot.dataset.color = dotColor;
+                    cell.appendChild(dot);
+                }
+
+                board.appendChild(cell);
+                cellElements[r][c] = cell;
+            }
+        }
+        drawPaths();
+    }
+
+    function updateInstructions(levelData) {
+        const maxDots = Math.max(...Object.values(levelData.dots).map(arr => arr.length));
+        
+        let consigne = "Relie les boules de même couleur. Remplis TOUTES les cases !";
+        if (maxDots > 2) {
+            consigne = "Relie les 3 boules de même couleur ! TOUTES les cases doivent être remplies.";
+        }
+
+        document.getElementById('instruction-text').innerText = consigne;
+    }
+
+    /* =========================================================================
+       GESTION DES ÉVÈNEMENTS POINTEURS (Touch & Mouse unifiés 0 Bug)
+       ========================================================================= */
+    function setupPointerEvents() {
+        // On attache les events au document pour ne jamais perdre le tracé si le doigt sort un peu
+        board.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('pointermove', handlePointerMove, {passive: false});
+        document.addEventListener('pointerup', handlePointerUp);
+        document.addEventListener('pointercancel', handlePointerUp);
+    }
+
+    function getCellFromEvent(e) {
+        // Obtenir l'élément sous le pointeur (parfait pour le touché glissé)
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (!el) return null;
+        // Remonter vers la cellule si on a cliqué sur un point
+        const cell = el.closest('.cell');
+        if (cell && board.contains(cell)) {
+            return { r: parseInt(cell.dataset.r), c: parseInt(cell.dataset.c) };
+        }
+        return null;
+    }
+
+    function handlePointerDown(e) {
+        if (e.button !== 0 && e.pointerType === 'mouse') return; // Clic gauche uniquement
+        const pos = getCellFromEvent(e);
+        if (!pos) return;
+
+        e.preventDefault(); // Empêcher comportement par défaut
+        
+        // Trouver si la cellule contient un point
+        const levelDots = LEVELS[currentLevelIndex].dots;
+        let clickedDotColor = null;
+        for (const [color, coordsList] of Object.entries(levelDots)) {
+            if (coordsList.some(coord => coord[0] === pos.r && coord[1] === pos.c)) {
+                clickedDotColor = color;
+                break;
+            }
+        }
+
+        if (clickedDotColor) {
+            // Démarrer un nouveau tracé pour cette couleur (efface l'ancien)
+            isDrawing = true;
+            drawingColor = clickedDotColor;
+            currentPath = [[pos.r, pos.c]];
+            delete paths[drawingColor];
+            drawPaths();
+            playBlip(200); // feedback sonore subtil
+        } else {
+            // Est-ce qu'on a cliqué sur une ligne existante ? On pourrait l'effacer pour être user-friendly
+            for (const [color, pathCoords] of Object.entries(paths)) {
+                if (pathCoords.some(c => c[0] === pos.r && c[1] === pos.c)) {
+                    delete paths[color];
+                    drawPaths();
+                    break;
+                }
+            }
+        }
+    }
+
+    function handlePointerMove(e) {
+        if (!isDrawing || !drawingColor) return;
+        e.preventDefault();
+
+        const pos = getCellFromEvent(e);
+        if (!pos) return;
+
+        const lastPos = currentPath[currentPath.length - 1];
+        if (pos.r === lastPos[0] && pos.c === lastPos[1]) return; // Pas bougé
+
+        // Vérifier adjacence (mouvements orthogonaux UNIQUEMENT, pas de diagonales)
+        const dr = Math.abs(pos.r - lastPos[0]);
+        const dc = Math.abs(pos.c - lastPos[1]);
+        if (dr + dc !== 1) return; // Saut trop grand ou diagonale interdite
+
+        // Est-ce un retour en arrière sur la ligne courante ? (Backtrack = couper la ligne)
+        const backtrackIndex = currentPath.findIndex(p => p[0] === pos.r && p[1] === pos.c);
+        if (backtrackIndex !== -1) {
+            currentPath = currentPath.slice(0, backtrackIndex + 1);
+            drawPaths();
+            playBlip(300 + backtrackIndex * 20);
+            return;
+        }
+
+        // Vérifier si la case est valide pour avancer
+        const levelDots = LEVELS[currentLevelIndex].dots;
+        
+        // 1. Ne doit pas atterrir sur une BOULE d'une AUTRE couleur
+        for (const [color, coordsList] of Object.entries(levelDots)) {
+            if (color !== drawingColor && coordsList.some(c => c[0] === pos.r && c[1] === pos.c)) {
+                return; // Bloqué : Impossible de dessiner par-dessus la boule d'une autre couleur
+            }
+        }
+
+        // 2. Si on croise un tuyau d'une AUTRE couleur, on le coupe et l'efface
+        for (const [color, pathCoords] of Object.entries(paths)) {
+            if (color !== drawingColor) {
+                const intersectIdx = pathCoords.findIndex(c => c[0] === pos.r && c[1] === pos.c);
+                if (intersectIdx !== -1) {
+                    // Couper le tuyau adverse à cet endroit !
+                    if (intersectIdx === 0) {
+                        delete paths[color];
+                    } else {
+                        paths[color] = pathCoords.slice(0, intersectIdx);
+                    }
+                }
+            }
+        }
+
+        // Avancer valide
+        currentPath.push([pos.r, pos.c]);
+        drawPaths();
+        playBlip(300 + currentPath.length * 20);
+
+        // Feedback visuel sur la cellule
+        const cellEl = cellElements[pos.r][pos.c];
+        cellEl.style.transform = 'scale(0.85)';
+        setTimeout(() => cellEl.style.transform = 'scale(1)', 100);
+    }
+
+    function handlePointerUp(e) {
+        if (!isDrawing) return;
+        isDrawing = false;
+        
+        // Valider le tracé courant : passe-t-il par TOUTES les boules de sa couleur ?
+        const requiredDots = LEVELS[currentLevelIndex].dots[drawingColor];
+        let visitedAll = true;
+        for (const dot of requiredDots) {
+            const hasDot = currentPath.some(p => p[0] === dot[0] && p[1] === dot[1]);
+            if (!hasDot) {
+                visitedAll = false;
+                break;
+            }
+        }
+        
+        // Le chemin doit commencer sur une boule et finir sur une boule
+        const first = currentPath[0];
+        const last = currentPath[currentPath.length-1];
+        const firstIsDot = requiredDots.some(d => d[0] === first[0] && d[1] === first[1]);
+        const lastIsDot = requiredDots.some(d => d[0] === last[0] && d[1] === last[1]);
+
+        if (visitedAll && firstIsDot && lastIsDot && currentPath.length > 1) {
+            paths[drawingColor] = [...currentPath];
+            playBlip(600); // Succès ligne
+        }
+        
+        currentPath = [];
+        drawingColor = null;
+        drawPaths();
+        
+        checkWinCondition();
+    }
+
+    /* =========================================================================
+       DESSIN SVG DES LIGNES
+       ========================================================================= */
+    function drawPaths() {
+        svgOverlay.innerHTML = '';
+        const cellSize = board.clientWidth / LEVELS[currentLevelIndex].size;
+        
+        // Dessiner les chemins validés
+        for (const [color, pathCoords] of Object.entries(paths)) {
+            drawSVGLine(pathCoords, COLORS[color]);
+        }
+        
+        // Dessiner le chemin en cours
+        if (isDrawing && currentPath.length > 0) {
+            drawSVGLine(currentPath, COLORS[drawingColor], true);
+        }
+    }
+
+    function drawSVGLine(coords, strokeColor, isDrawingActive = false) {
+        if (coords.length < 2) return;
+        
+        const cellSizeX = board.clientWidth / LEVELS[currentLevelIndex].size;
+        const cellSizeY = board.clientHeight / LEVELS[currentLevelIndex].size;
+        
+        const getPoint = (r, c) => ({
+            x: (c * cellSizeX) + (cellSizeX / 2),
+            y: (r * cellSizeY) + (cellSizeY / 2)
+        });
+
+        let d = '';
+        for (let i = 0; i < coords.length; i++) {
+            const pt = getPoint(coords[i][0], coords[i][1]);
+            if (i === 0) d += `M ${pt.x} ${pt.y} `;
+            else d += `L ${pt.x} ${pt.y} `;
+        }
+
+        const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathEl.setAttribute('d', d);
+        pathEl.setAttribute('stroke', strokeColor);
+        pathEl.setAttribute('class', 'path-line');
+        if (isDrawingActive) {
+            pathEl.setAttribute('opacity', '0.7');
+            pathEl.setAttribute('stroke-dasharray', '8,8'); // Pointillés pour le tracé en cours
+        }
+        svgOverlay.appendChild(pathEl);
+    }
+
+    // Redimensionnement dynamique pour garder le SVG aligné
+    window.addEventListener('resize', drawPaths);
+
+    /* =========================================================================
+       VALIDATION DU NIVEAU
+       ========================================================================= */
+    function checkWinCondition() {
+        const levelData = LEVELS[currentLevelIndex];
+        const allColors = Object.keys(levelData.dots);
+        
+        // 1. Toutes les couleurs sont connectées
+        if (allColors.length !== Object.keys(paths).length) return;
+
+        // 2. Remplissage à 100% de la grille
+        const totalCells = levelData.size * levelData.size;
+        const usedCells = new Set();
+        for (const path of Object.values(paths)) {
+            for (const pos of path) {
+                usedCells.add(`${pos[0]},${pos[1]}`);
+            }
+        }
+        
+        if (usedCells.size === totalCells) {
+            triggerWin();
+        }
+    }
+
+    function triggerWin() {
+        const modal = document.getElementById('win-modal');
+        const content = document.getElementById('win-modal-content');
+        
+        modal.classList.remove('hidden');
+        // Petit délai pour l'animation CSS
+        setTimeout(() => {
+            modal.classList.remove('opacity-0');
+            content.classList.remove('scale-90');
+        }, 10);
+    }
+
+    function closeWinModal() {
+        const modal = document.getElementById('win-modal');
+        const content = document.getElementById('win-modal-content');
+        
+        modal.classList.add('opacity-0');
+        content.classList.add('scale-90');
+        setTimeout(() => {
+            modal.classList.add('hidden');
+        }, 300);
+    }
+
+    function nextLevel() {
+        closeWinModal();
+        if (currentLevelIndex < LEVELS.length - 1) {
+            loadLevel(currentLevelIndex + 1);
+        }
+    }
+
+    function changeLevel(dir) {
+        const newIdx = currentLevelIndex + dir;
+        if (newIdx >= 0 && newIdx < LEVELS.length) {
+            loadLevel(newIdx);
+        }
+    }
+
+    function resetCurrentLevel() {
+        loadLevel(currentLevelIndex);
+    }
+
+    function showSolution() {
+        const levelData = LEVELS[currentLevelIndex];
+        paths = JSON.parse(JSON.stringify(levelData.solution)); // Deep copy simple
+        drawPaths();
+        // Optionnel: vérifier la victoire automatiquement
+        checkWinCondition();
+    }
+
+    /* =========================================================================
+       SYNTHÉTISEUR SONORE SIMPLE (Web Audio API)
+       ========================================================================= */
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playBlip(freq = 400) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.1);
+        osc.stop(audioCtx.currentTime + 0.1);
+    }
+
+    // Lancer le jeu
+    window.onload = init;
+
+</script>
+</body>
+</html>
